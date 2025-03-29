@@ -135,46 +135,34 @@
             showSearchSection();
         }
 
-        // Generate PKCE code verifier and challenge
-        function generateCodeVerifier() {
-            const array = new Uint8Array(32);
-            crypto.getRandomValues(array);
-            return base64URLEncode(array);
-        }
-
-        function base64URLEncode(buffer) {
-            return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)))
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
-        }
-
-        async function generateCodeChallenge(verifier) {
-            const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-            return base64URLEncode(hash);
-        }
-
         // Authentication button click handler
-        $('#auth-button').click(async function() {
-            const codeVerifier = generateCodeVerifier();
-            const codeChallenge = await generateCodeChallenge(codeVerifier);
+        $('#auth-button').click(function() {
             const state = generateRandomState();
-            
-            // Store values in localStorage
-            localStorage.setItem('code_verifier', codeVerifier);
             localStorage.setItem('oauth_state', state);
             
             const authUrl = `https://twitter.com/i/oauth2/authorize?` +
-                `response_type=code` +
+                `response_type=token` +
                 `&client_id=${clientId}` +
                 `&redirect_uri=${encodeURIComponent(redirectUri)}` +
                 `&scope=${encodeURIComponent(scope)}` +
-                `&state=${state}` +
-                `&code_challenge=${codeChallenge}` +
-                `&code_challenge_method=S256`;
+                `&state=${state}`;
             
             window.location.href = authUrl;
         });
+
+        // Handle OAuth callback
+        if (window.location.hash) {
+            const params = new URLSearchParams(window.location.hash.substring(1));
+            const accessToken = params.get('access_token');
+            const state = params.get('state');
+            
+            if (accessToken && state === localStorage.getItem('oauth_state')) {
+                localStorage.setItem('twitter_access_token', accessToken);
+                localStorage.removeItem('oauth_state');
+                window.location.hash = '';
+                showSearchSection();
+            }
+        }
 
         // Search button click handler
         $('#search-button').click(function() {
@@ -207,6 +195,11 @@
                 });
 
                 if (!response.ok) {
+                    if (response.status === 401) {
+                        showError('Authentication expired. Please log in again.');
+                        showAuthSection();
+                        return;
+                    }
                     throw new Error('Failed to get user data');
                 }
 
@@ -309,48 +302,6 @@
                 </div>
                 ${resultsHtml}
             `);
-        }
-
-        // Handle OAuth callback
-        if (window.location.search) {
-            const params = new URLSearchParams(window.location.search);
-            const code = params.get('code');
-            const state = params.get('state');
-            
-            if (code && state === localStorage.getItem('oauth_state')) {
-                try {
-                    const codeVerifier = localStorage.getItem('code_verifier');
-                    const tokenResponse = await fetch('https://api.twitter.com/2/oauth2/token', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                        },
-                        body: new URLSearchParams({
-                            code: code,
-                            grant_type: 'authorization_code',
-                            client_id: clientId,
-                            redirect_uri: redirectUri,
-                            code_verifier: codeVerifier
-                        })
-                    });
-
-                    if (!tokenResponse.ok) {
-                        throw new Error('Failed to get access token');
-                    }
-
-                    const tokenData = await tokenResponse.json();
-                    localStorage.setItem('twitter_access_token', tokenData.access_token);
-                    localStorage.removeItem('code_verifier');
-                    localStorage.removeItem('oauth_state');
-                    
-                    // Clean up URL
-                    window.history.replaceState({}, document.title, window.location.pathname);
-                    
-                    showSearchSection();
-                } catch (error) {
-                    showError('Authentication failed: ' + error.message);
-                }
-            }
         }
     </script>
 </body>
