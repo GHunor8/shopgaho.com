@@ -126,7 +126,7 @@
     <script>
         // Twitter OAuth 2.0 configuration
         const clientId = 'WmNiYzcxUlJxeGJVd0MwemtObDQ6MTpjaQ';
-        const redirectUri = 'https://ghunor8.github.io/shopgaho.com/';  // Updated to GitHub Pages URL
+        const redirectUri = 'https://ghunor8.github.io/shopgaho.com/';
         const scope = ['tweet.read', 'users.read', 'follows.read'].join(' ');
 
         // Check if user is authenticated
@@ -137,14 +137,15 @@
 
         // Authentication button click handler
         $('#auth-button').click(function() {
+            // Store the current state in localStorage
+            localStorage.setItem('oauth_state', generateRandomState());
+            
             const authUrl = `https://twitter.com/i/oauth2/authorize?` +
-                `response_type=code` +
+                `response_type=token` +  // Changed to token flow
                 `&client_id=${clientId}` +
                 `&redirect_uri=${encodeURIComponent(redirectUri)}` +
                 `&scope=${encodeURIComponent(scope)}` +
-                `&state=${generateRandomState()}` +
-                `&code_challenge=${generateCodeChallenge()}` +
-                `&code_challenge_method=S256`;
+                `&state=${localStorage.getItem('oauth_state')}`;
             
             window.location.href = authUrl;
         });
@@ -258,11 +259,6 @@
             return Math.random().toString(36).substring(7);
         }
 
-        function generateCodeChallenge() {
-            // In a real implementation, you would generate a proper PKCE code challenge
-            return 'challenge';
-        }
-
         function displayResults(matches) {
             if (matches.length === 0) {
                 $('#results').html(`
@@ -293,8 +289,11 @@
         if (window.location.hash) {
             const params = new URLSearchParams(window.location.hash.substring(1));
             const accessToken = params.get('access_token');
-            if (accessToken) {
+            const state = params.get('state');
+            
+            if (accessToken && state === localStorage.getItem('oauth_state')) {
                 localStorage.setItem('twitter_access_token', accessToken);
+                localStorage.removeItem('oauth_state');
                 showSearchSection();
                 window.location.hash = '';
             }
