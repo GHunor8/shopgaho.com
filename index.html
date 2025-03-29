@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X Follower Search</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f8fa;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #1da1f2;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #1991db;
+        }
+        #results {
+            margin-top: 20px;
+        }
+        .follower-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid #e1e8ed;
+        }
+        .matched-keywords {
+            color: #1da1f2;
+            font-weight: bold;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1da1f2;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>X Follower Search</h1>
+        
+        <div id="auth-section">
+            <button id="auth-button">Authenticate with X</button>
+        </div>
+
+        <div id="search-section" style="display: none;">
+            <div class="form-group">
+                <label for="username">X Username:</label>
+                <input type="text" id="username" placeholder="Enter username (without @)">
+            </div>
+            
+            <div class="form-group">
+                <label for="keywords">Keywords (comma-separated):</label>
+                <input type="text" id="keywords" placeholder="e.g., marketing, SEO, growth">
+            </div>
+            
+            <button id="search-button">Search Followers' Bios</button>
+            <button id="logout-button" style="background-color: #dc3545;">Logout</button>
+        </div>
+
+        <div class="loading">
+            <div class="spinner"></div>
+            <p>Searching followers...</p>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // Twitter OAuth 2.0 configuration
+        const clientId = 'WmNiYzcxUlJxeGJVd0MwemtObDQ6MTpjaQ';  // Replace with your Twitter API client ID
+        const redirectUri = 'https://shopgaho.com/callback';  // Your Squarespace domain
+        const scope = ['tweet.read', 'users.read', 'follows.read'].join(' ');
+
+        // Check if user is authenticated
+        const accessToken = localStorage.getItem('twitter_access_token');
+        if (accessToken) {
+            showSearchSection();
+        }
+
+        // Authentication button click handler
+        $('#auth-button').click(function() {
+            const authUrl = `https://twitter.com/i/oauth2/authorize?` +
+                `response_type=code` +
+                `&client_id=${clientId}` +
+                `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+                `&scope=${encodeURIComponent(scope)}` +
+                `&state=${generateRandomState()}` +
+                `&code_challenge=${generateCodeChallenge()}` +
+                `&code_challenge_method=S256`;
+            
+            window.location.href = authUrl;
+        });
+
+        // Search button click handler
+        $('#search-button').click(function() {
+            const username = $('#username').val().trim();
+            const keywords = $('#keywords').val().trim().split(',').map(k => k.trim());
+            
+            if (!username || !keywords.length) {
+                showError('Please enter both username and keywords');
+                return;
+            }
+
+            showLoading();
+            searchFollowers(username, keywords);
+        });
+
+        // Logout button click handler
+        $('#logout-button').click(function() {
+            localStorage.removeItem('twitter_access_token');
+            showAuthSection();
+            $('#results').empty();
+        });
+
+        // Search followers function
+        async function searchFollowers(username, keywords) {
+            try {
+                const response = await fetch(`https://api.twitter.com/2/users/by/username/${username}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('twitter_access_token')}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to get user data');
+                }
+
+                const userData = await response.json();
+                const followers = await getFollowers(userData.data.id);
+                const matches = findMatches(followers, keywords);
+                
+                displayResults(matches);
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Get followers function
+        async function getFollowers(userId) {
+            const response = await fetch(`https://api.twitter.com/2/users/${userId}/followers?max_results=100&user.fields=description`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('twitter_access_token')}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to get followers');
+            }
+
+            const data = await response.json();
+            return data.data || [];
+        }
+
+        // Find matches function
+        function findMatches(followers, keywords) {
+            return followers.filter(follower => {
+                if (!follower.description) return false;
+                const bio = follower.description.toLowerCase();
+                const matchedKeywords = keywords.filter(keyword => 
+                    bio.includes(keyword.toLowerCase())
+                );
+                if (matchedKeywords.length > 0) {
+                    follower.matched_keywords = matchedKeywords;
+                    return true;
+                }
+                return false;
+            });
+        }
+
+        // Helper functions
+        function showLoading() {
+            $('.loading').show();
+        }
+
+        function hideLoading() {
+            $('.loading').hide();
+        }
+
+        function showError(message) {
+            $('#results').html(`
+                <div class="status error">
+                    ${message}
+                </div>
+            `);
+        }
+
+        function showAuthSection() {
+            $('#auth-section').show();
+            $('#search-section').hide();
+        }
+
+        function showSearchSection() {
+            $('#auth-section').hide();
+            $('#search-section').show();
+        }
+
+        function generateRandomState() {
+            return Math.random().toString(36).substring(7);
+        }
+
+        function generateCodeChallenge() {
+            // In a real implementation, you would generate a proper PKCE code challenge
+            return 'challenge';
+        }
+
+        function displayResults(matches) {
+            if (matches.length === 0) {
+                $('#results').html(`
+                    <div class="status">
+                        No matches found
+                    </div>
+                `);
+                return;
+            }
+
+            const resultsHtml = matches.map(match => `
+                <div class="follower-card">
+                    <strong>@${match.username}</strong>
+                    <p>${match.bio}</p>
+                    <p>Matched keywords: <span class="matched-keywords">${match.matched_keywords.join(', ')}</span></p>
+                </div>
+            `).join('');
+
+            $('#results').html(`
+                <div class="status success">
+                    Found ${matches.length} matches
+                </div>
+                ${resultsHtml}
+            `);
+        }
+
+        // Handle OAuth callback
+        if (window.location.hash) {
+            const params = new URLSearchParams(window.location.hash.substring(1));
+            const accessToken = params.get('access_token');
+            if (accessToken) {
+                localStorage.setItem('twitter_access_token', accessToken);
+                showSearchSection();
+                window.location.hash = '';
+            }
+        }
+    </script>
+</body>
+</html> 
